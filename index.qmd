@@ -1,0 +1,133 @@
+---
+title: "Демо"
+format: html
+filters:
+  - shinylive
+---
+
+Пример статического хостинга вебсайта с исполняемым Питоном.
+
+  [dzenny.github.io/demos](https://dzenny.github.io/demos)
+
+
+{{< include intro.qmd >}}
+
+
+
+```{shinylive-python}
+#| standalone: true
+#| components: [viewer]
+#| viewerHeight: 420
+
+from pathlib import Path
+import scipy.optimize
+import numpy as np
+import matplotlib.pyplot as plt
+
+data = {
+    10: (
+        [100, 150, 200, 220, 230, 250, 300, 350, 400],
+        [283, 267, 249, 232, 221, 187, 97,   45,  34],
+        [254.0, 31.0, 0.03, 260.0]        
+    ),
+    20: (
+        [100, 150, 200, 220, 230, 250, 300, 350, 400],
+        [283, 267, 226, 208, 191,  81,  46,  42,  34],
+        [254.0, 31.0, 0.05, 230.0]        
+    ),
+    30: (
+        [100, 150, 200, 220, 230, 250, 300, 350, 400],
+        [285, 267, 226, 168,  93,  74,  44,  38,  34],
+        [254.0, 31.0, 0.05, 220.0]        
+    ),
+}
+
+
+def error(xs, ys):
+    """Вычисляем максимальную относительную ошибку"""
+    series = [np.abs(x-y)/x for x, y in zip(xs, ys)]
+    return np.max(series)
+
+def f(params):
+    """Создаем numpy-вариант логистической функции
+        - для matplotlib
+    """
+    max, min, k, t0 = params
+    y = lambda t: max/(1+np.exp(k*(t-t0)))+min
+    return np.frompyfunc(y, 1, 1)
+
+def output(params):
+    print(f'               max     min       k       t0   δ')
+    for param in params:
+        title, (max, min, k, t0), err = param
+        print(f'{title}  {max:.3f} {min:.3f} {k:.5f} {t0:.3f} {err:.2f}%')
+
+
+    # output(zip(
+    #     ['Визуально: ', 'sqr -> min:', 'abs -> min:'],
+    #     [x0, res_sqr.x, res_abs.x],
+    #     [err_vis, err_sqr, err_abs],
+    # ))
+
+from shiny import App, render, ui
+
+app_ui = ui.page_fluid(
+    ui.layout_sidebar(
+        ui.panel_sidebar(
+            ui.input_radio_buttons(
+                "minutes", "Минуты воздействия", {'10': 10, '20': 20, '30': 30}
+            ),
+            ui.output_text_verbatim("output"),
+        ),
+        ui.panel_main(
+            ui.output_plot("plot"),
+        ),
+    ),
+)
+
+
+def server(input, output, session):
+    @output
+    @render.plot(alt="Графики зависимостей")
+    def plot():
+        """Основная функция"""
+        minutes = input.minutes()
+        ts, cs, x0 = data[int(minutes)]
+
+        def target_sqr(params):
+            """Вычисление MSE-ошибки -- будет минимизироваться"""
+            max, min, k, t0 = params
+            sum = 0
+            for t, c in zip(ts, cs):
+                sum += (max/(1+np.exp(k*(t-t0)))+min-c)**2
+            return sum
+
+        def target_abs(params):
+            """Вычисление MAE-ошибки -- будет минимизироваться"""
+            max, min, k, t0 = params
+            sum = 0
+            for t, c in zip(ts, cs):
+                sum += np.abs(max/(1+np.exp(k*(t-t0)))+min-c)
+            return sum
+
+        res_sqr = scipy.optimize.minimize(target_sqr, x0=x0, method='BFGS')
+        res_abs = scipy.optimize.minimize(target_abs, x0=x0, method='BFGS')
+        fig, ax = plt.subplots(figsize=(12,8))
+        ax.plot(ts, cs, marker='o', color = 'blue', label='Эксперимент')
+
+        xs = np.linspace(100, 400, 100)
+        y = f(x0)
+        err_vis = error(cs, y(xs))
+        ax.plot(xs, y(xs), color = 'red', label= 'Визуальный подбор')
+        y = f(res_sqr.x)
+        err_sqr = error(cs, y(xs))
+        ax.plot(xs, y(xs), color = 'green', label='sqr -> min (BFGS)')
+        y = f(res_abs.x)
+        err_abs = error(cs, y(xs))
+        ax.plot(xs, y(xs), color = 'purple', label='abs -> min (BFGS)')
+        ax.legend();
+
+#www_dir = Path(__file__).parent / "www"
+app = App(app_ui, server, debug=True)
+
+```

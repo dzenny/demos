@@ -1,0 +1,28 @@
+project:
+  type: website
+  output-dir: docs
+  render:
+    - /index.qmd
+
+website:
+  title: "demos"
+  favicon: images/logo.png
+  navbar:
+    left:
+      - href: index.qmd
+        text: Главная
+      - href: about.qmd
+        text: О программе
+  page-footer: "&copy; Бабёнышев Сергей"  
+
+format:
+  html:
+    lang: ru
+    mainfont: "Times New Roman"
+    theme:
+      dark: slate
+      light: sandstone 
+    css: styles.css
+    toc: true
+
+
