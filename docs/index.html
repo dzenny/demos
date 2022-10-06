@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
-<title>demos - Демо</title>
+<title>DEMOS - Демо</title>
 <style>
 code{white-space: pre-wrap;}
 span.smallcaps{font-variant: small-caps;}
@@ -145,7 +145,7 @@ code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warni
       <div class="navbar-container container-fluid">
       <div class="navbar-brand-container">
     <a class="navbar-brand" href="./index.html">
-    <span class="navbar-title">demos</span>
+    <span class="navbar-title">DEMOS</span>
     </a>
   </div>
           <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
@@ -194,8 +194,8 @@ code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warni
 
 </header>
 
-<p>Пример статического хостинга вебсайта с исполняемым Питоном.</p>
-<p><a href="https://dzenny.github.io/demos">dzenny.github.io/demos</a></p>
+<p>Пример статического вебсайта с исполняемым Питоном.</p>
+<p><a href="https://dzenny.github.io/demos">https://dzenny.github.io/demos</a></p>
 <div class="accordion">
 <div class="accordion-item">
 <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne">
@@ -283,18 +283,6 @@ def f(params):
     y = lambda t: max/(1+np.exp(k*(t-t0)))+min
     return np.frompyfunc(y, 1, 1)
 
-def output(params):
-    print(f'               max     min       k       t0   δ')
-    for param in params:
-        title, (max, min, k, t0), err = param
-        print(f'{title}  {max:.3f} {min:.3f} {k:.5f} {t0:.3f} {err:.2f}%')
-
-
-    # output(zip(
-    #     ['Визуально: ', 'sqr -&gt; min:', 'abs -&gt; min:'],
-    #     [x0, res_sqr.x, res_abs.x],
-    #     [err_vis, err_sqr, err_abs],
-    # ))
 
 from shiny import App, render, ui
 
@@ -303,6 +291,16 @@ app_ui = ui.page_fluid(
         ui.panel_sidebar(
             ui.input_radio_buttons(
                 "minutes", "Минуты воздействия", {'10': 10, '20': 20, '30': 30}
+            ),
+            ui.input_checkbox_group("curves",
+                "Теоретические кривые", 
+                {
+                    "exp": "Эксперимент",
+                    "vis": "Визуально",
+                    "mse": "MSE-&gt;BFGS",
+                    "mae": "MAE-&gt;BFGS",
+                },
+                selected = ['exp', 'vis', 'mse', 'mae']
             ),
             ui.output_text_verbatim("output"),
         ),
@@ -340,19 +338,41 @@ def server(input, output, session):
         res_sqr = scipy.optimize.minimize(target_sqr, x0=x0, method='BFGS')
         res_abs = scipy.optimize.minimize(target_abs, x0=x0, method='BFGS')
         fig, ax = plt.subplots(figsize=(12,8))
-        ax.plot(ts, cs, marker='o', color = 'blue', label='Эксперимент')
+        curves = input.curves()
+
+        if 'exp' in curves:
+            ax.plot(ts, cs, marker='o', color = 'blue', label='Эксперимент')
 
         xs = np.linspace(100, 400, 100)
         y = f(x0)
         err_vis = error(cs, y(xs))
-        ax.plot(xs, y(xs), color = 'red', label= 'Визуальный подбор')
+        if 'vis' in curves:
+            ax.plot(xs, y(xs), color = 'red', label= 'Визуальный подбор')
+
         y = f(res_sqr.x)
         err_sqr = error(cs, y(xs))
-        ax.plot(xs, y(xs), color = 'green', label='sqr -&gt; min (BFGS)')
+        if 'mse' in curves:
+            ax.plot(xs, y(xs), color = 'green', label='sqr -&gt; min (BFGS)')
         y = f(res_abs.x)
         err_abs = error(cs, y(xs))
-        ax.plot(xs, y(xs), color = 'purple', label='abs -&gt; min (BFGS)')
+        if 'mae' in curves:
+            ax.plot(xs, y(xs), color = 'purple', label='abs -&gt; min (BFGS)')
         ax.legend();
+
+    @render.text
+    def output():
+        params = zip(
+            ['Визуально: ', 'sqr -&gt; min:', 'abs -&gt; min:'],
+            [x0, res_sqr.x, res_abs.x],
+            [err_vis, err_sqr, err_abs],
+        )
+        out_text = f'               max     min       k       t0   δ\n'
+        for param in params:
+            title, (max, min, k, t0), err = param
+            out_text += f'{title}  {max:.3f} {min:.3f} {k:.5f} {t0:.3f} {err:.2f}%\n'
+        return out_text
+
+
 
 #www_dir = Path(__file__).parent / "www"
 app = App(app_ui, server, debug=True)

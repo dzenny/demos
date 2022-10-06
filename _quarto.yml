@@ -5,7 +5,7 @@ project:
     - /index.qmd
 
 website:
-  title: "demos"
+  title: "DEMOS"
   favicon: images/logo.png
   navbar:
     left:
