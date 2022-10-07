@@ -245,11 +245,106 @@ code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warni
 <pre class="shinylive-python"><code>#| standalone: true
 #| components: [viewer]
 #| viewerHeight: 420
+## file: requirements.txt
 
+## file: app.py
 from pathlib import Path
 import scipy.optimize
 import numpy as np
 import matplotlib.pyplot as plt
+from data import data, get_approximations
+from shiny import * # App, render, ui
+
+header_style = "font-weight: 600; line-height: 225%;"
+total = get_approximations()
+
+app_ui = ui.page_fluid(
+    ui.layout_sidebar(
+        ui.panel_sidebar(
+            ui.input_radio_buttons(
+                "minutes",
+                ui.span("Воздействие:", style=header_style),
+                {10: '10 мин', 20: '20 мин', 30: '30 мин'}
+            ),
+            ui.input_checkbox_group("curves",
+                ui.span("Показать:", style=header_style),
+                {
+                    "exp": "Эксперимент",
+                    "vis": "Визуально",
+                    "mse": "MSE-&gt;BFGS",
+                    "mae": "MAE-&gt;BFGS",
+                },
+                selected = ['exp', 'vis', 'mse', 'mae']
+            ),
+            #ui.output_table('output'),
+            ui.output_text('txt'),
+        ),
+        ui.panel_main(
+            ui.output_plot("plot"),
+        ),
+    ),
+)
+
+styles = {
+    'exp': {'color': 'blue'  , 'label': 'Эксперимент', 'marker': 'o'}, # не используется
+    'vis': {'color': 'red'   , 'label': 'Визуально'},
+    'mse': {'color': 'green' , 'label': 'MSE-&gt;BFGS'},
+    'mae': {'color': 'purple', 'label': 'MAE-&gt;BFGS'},
+}
+
+
+def server(input, output, session):
+    @output
+    @render.plot(alt="Графики зависимостей")
+    def plot():
+        """Основная функция"""
+        minutes = int(input.minutes())
+        ts, cs, x0 = data[minutes]
+        inp = total[minutes]
+
+        fig, ax = plt.subplots(figsize=(12,8))
+        ax.set_xlabel('Градусы (С)')
+        ax.set_ylabel('Cтепень белизны?')
+        ax.set_xlim(100, 400)
+        ax.set_ylim(  0, 300)
+        
+        curves = input.curves()
+        if 'exp' in curves:
+            ax.plot(ts, cs, marker='o', color = 'blue', label='Эксперимент')
+        
+        for curve in set(curves)-{'exp'}:
+            ax.plot(inp['xs'], inp[curve], **styles[curve])
+
+        ax.legend();
+
+    @render.table
+    def output():
+        return total[int(input.minutes())]['errors']
+
+    @render.text
+    def txt():
+        return "TODO: Ошибки"
+        # params = zip(
+        #     ['Визуально: ', 'sqr -&gt; min:', 'abs -&gt; min:'],
+        #     [x0, res_sqr.x, res_abs.x],
+        #     [err_vis, err_sqr, err_abs],
+        # )
+        # out_text = f'               max     min       k       t0   δ\n'
+        # for param in params:
+        #     title, (max, min, k, t0), err = param
+        #     out_text += f'{title}  {max:.3f} {min:.3f} {k:.5f} {t0:.3f} {err:.2f}%\n'
+        # return out_text
+
+
+
+#www_dir = Path(__file__).parent / "www"
+app = App(app_ui, server, debug=True)
+
+## file: data.py
+import numpy as np
+import scipy.optimize
+import pandas as pd
+
 
 data = {
     10: (
@@ -269,13 +364,12 @@ data = {
     ),
 }
 
-
-def error(xs, ys):
+def err(xs, ys):
     """Вычисляем максимальную относительную ошибку"""
     series = [np.abs(x-y)/x for x, y in zip(xs, ys)]
     return np.max(series)
 
-def f(params):
+def np_logistic(params):
     """Создаем numpy-вариант логистической функции
         - для matplotlib
     """
@@ -283,99 +377,44 @@ def f(params):
     y = lambda t: max/(1+np.exp(k*(t-t0)))+min
     return np.frompyfunc(y, 1, 1)
 
+def get_approximations():
+    total = {}
+    xs = np.linspace(100, 400, 100)
+    for minutes in data.keys():
+        df = pd.DataFrame(columns= ['max', 'min', 'k', 't0', 'δ'])
+        results =  {"xs": xs}
 
-from shiny import App, render, ui
+        ts, cs, x0 = data[minutes]
 
-app_ui = ui.page_fluid(
-    ui.layout_sidebar(
-        ui.panel_sidebar(
-            ui.input_radio_buttons(
-                "minutes", "Минуты воздействия", {'10': 10, '20': 20, '30': 30}
-            ),
-            ui.input_checkbox_group("curves",
-                "Теоретические кривые", 
-                {
-                    "exp": "Эксперимент",
-                    "vis": "Визуально",
-                    "mse": "MSE-&gt;BFGS",
-                    "mae": "MAE-&gt;BFGS",
-                },
-                selected = ['exp', 'vis', 'mse', 'mae']
-            ),
-            ui.output_text_verbatim("output"),
-        ),
-        ui.panel_main(
-            ui.output_plot("plot"),
-        ),
-    ),
-)
-
-
-def server(input, output, session):
-    @output
-    @render.plot(alt="Графики зависимостей")
-    def plot():
-        """Основная функция"""
-        minutes = input.minutes()
-        ts, cs, x0 = data[int(minutes)]
-
-        def target_sqr(params):
-            """Вычисление MSE-ошибки -- будет минимизироваться"""
+        def mse_func(params):
+            """Вычисление функции MSE-ошибки -- будет минимизироваться"""
             max, min, k, t0 = params
             sum = 0
             for t, c in zip(ts, cs):
                 sum += (max/(1+np.exp(k*(t-t0)))+min-c)**2
             return sum
 
-        def target_abs(params):
-            """Вычисление MAE-ошибки -- будет минимизироваться"""
+        def mae_func(params):
+            """Вычисление функции MAE-ошибки -- будет минимизироваться"""
             max, min, k, t0 = params
             sum = 0
             for t, c in zip(ts, cs):
                 sum += np.abs(max/(1+np.exp(k*(t-t0)))+min-c)
             return sum
 
-        res_sqr = scipy.optimize.minimize(target_sqr, x0=x0, method='BFGS')
-        res_abs = scipy.optimize.minimize(target_abs, x0=x0, method='BFGS')
-        fig, ax = plt.subplots(figsize=(12,8))
-        curves = input.curves()
+        min_sqr = scipy.optimize.minimize(mse_func, x0=x0, method='BFGS')
+        min_abs = scipy.optimize.minimize(mae_func, x0=x0, method='BFGS')
+        for curve, params in [('vis', x0), ('mse', min_sqr.x), ('mae', min_abs.x)]:
+            y = np_logistic(params) 
+            ys = y(xs)
+            results[curve] = ys
+            max, min, k, t0 = params            
+            df.loc[curve] = (max, min, k, t0, err(xs, ys))
 
-        if 'exp' in curves:
-            ax.plot(ts, cs, marker='o', color = 'blue', label='Эксперимент')
-
-        xs = np.linspace(100, 400, 100)
-        y = f(x0)
-        err_vis = error(cs, y(xs))
-        if 'vis' in curves:
-            ax.plot(xs, y(xs), color = 'red', label= 'Визуальный подбор')
-
-        y = f(res_sqr.x)
-        err_sqr = error(cs, y(xs))
-        if 'mse' in curves:
-            ax.plot(xs, y(xs), color = 'green', label='sqr -&gt; min (BFGS)')
-        y = f(res_abs.x)
-        err_abs = error(cs, y(xs))
-        if 'mae' in curves:
-            ax.plot(xs, y(xs), color = 'purple', label='abs -&gt; min (BFGS)')
-        ax.legend();
-
-    @render.text
-    def output():
-        params = zip(
-            ['Визуально: ', 'sqr -&gt; min:', 'abs -&gt; min:'],
-            [x0, res_sqr.x, res_abs.x],
-            [err_vis, err_sqr, err_abs],
-        )
-        out_text = f'               max     min       k       t0   δ\n'
-        for param in params:
-            title, (max, min, k, t0), err = param
-            out_text += f'{title}  {max:.3f} {min:.3f} {k:.5f} {t0:.3f} {err:.2f}%\n'
-        return out_text
-
-
-
-#www_dir = Path(__file__).parent / "www"
-app = App(app_ui, server, debug=True)
+        results['errors'] = df
+        total[minutes] = results
+    
+    return total
 </code></pre>
 
 
