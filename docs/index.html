@@ -244,7 +244,7 @@ code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warni
 </div>
 <pre class="shinylive-python"><code>#| standalone: true
 #| components: [viewer]
-#| viewerHeight: 420
+#| viewerHeight: 560
 ## file: requirements.txt
 
 ## file: app.py
@@ -261,6 +261,7 @@ total = get_approximations()
 app_ui = ui.page_fluid(
     ui.layout_sidebar(
         ui.panel_sidebar(
+            #ui.output_text_verbatim('txt'),
             ui.input_radio_buttons(
                 "minutes",
                 ui.span("Воздействие:", style=header_style),
@@ -277,10 +278,10 @@ app_ui = ui.page_fluid(
                 selected = ['exp', 'vis', 'mse', 'mae']
             ),
             #ui.output_table('output'),
-            ui.output_text('txt'),
         ),
         ui.panel_main(
             ui.output_plot("plot"),
+            ui.output_text_verbatim('txt'),
         ),
     ),
 )
@@ -317,24 +318,14 @@ def server(input, output, session):
 
         ax.legend();
 
-    @render.table
-    def output():
-        return total[int(input.minutes())]['errors']
+    # @render.table
+    # def output():
+    #     return total[int(input.minutes())]['errors']
 
+    @output
     @render.text
     def txt():
-        return "TODO: Ошибки"
-        # params = zip(
-        #     ['Визуально: ', 'sqr -&gt; min:', 'abs -&gt; min:'],
-        #     [x0, res_sqr.x, res_abs.x],
-        #     [err_vis, err_sqr, err_abs],
-        # )
-        # out_text = f'               max     min       k       t0   δ\n'
-        # for param in params:
-        #     title, (max, min, k, t0), err = param
-        #     out_text += f'{title}  {max:.3f} {min:.3f} {k:.5f} {t0:.3f} {err:.2f}%\n'
-        # return out_text
-
+        return total[int(input.minutes())]['errors']
 
 
 #www_dir = Path(__file__).parent / "www"
@@ -364,6 +355,12 @@ data = {
     ),
 }
 
+titles = {
+    'vis': 'Визуально ',
+    'mse': 'MSE-&gt;BFGS',
+    'mae': 'MAE-&gt;BFGS'
+}
+
 def err(xs, ys):
     """Вычисляем максимальную относительную ошибку"""
     series = [np.abs(x-y)/x for x, y in zip(xs, ys)]
@@ -382,6 +379,7 @@ def get_approximations():
     xs = np.linspace(100, 400, 100)
     for minutes in data.keys():
         df = pd.DataFrame(columns= ['max', 'min', 'k', 't0', 'δ'])
+        txt_out = '              max     min       k       t0   δ\n'
         results =  {"xs": xs}
 
         ts, cs, x0 = data[minutes]
@@ -408,10 +406,12 @@ def get_approximations():
             y = np_logistic(params) 
             ys = y(xs)
             results[curve] = ys
-            max, min, k, t0 = params            
-            df.loc[curve] = (max, min, k, t0, err(xs, ys))
+            max, min, k, t0 = params
+            error = err(xs, ys)           
+            df.loc[curve] = (max, min, k, t0, error)
+            txt_out += f'{titles[curve]}  {max:.3f} {min:.3f} {k:.5f} {t0:.3f} {error:.2f}%\n'
 
-        results['errors'] = df
+        results['errors'] = txt_out
         total[minutes] = results
     
     return total
